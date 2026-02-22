@@ -1,5 +1,7 @@
 # File Explorer
 
+File explorer using `iced`.
+
 Stupid file explorer to explore files.
 Because finder sucks.
 
