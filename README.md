@@ -7,6 +7,7 @@ Because finder sucks.
 
 ### TODO:
 
+- [ ] Drag and Drop!
 - [ ] Colorscheme
     - [ ] Custom Colorscheme
 - [ ] Path autocompletion
