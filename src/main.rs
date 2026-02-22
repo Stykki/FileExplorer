@@ -1,9 +1,12 @@
 use std::{fs::DirEntry, path::Path};
 
 use iced::{
+    Event,
     Length::Fill,
-    Task, task,
-    widget::{button, column, mouse_area, row, scrollable, text, text_input},
+    Subscription, Task, event,
+    keyboard::Modifiers,
+    task,
+    widget::{button, column, container, mouse_area, row, scrollable, text, text_input},
 };
 
 enum FileType {
@@ -30,9 +33,11 @@ type Element<'a> = iced::Element<'a, Message>;
 struct App {
     path: String,
     entries: Vec<DirEntry>,
+    modifiers: Modifiers,
 
-    // TODO: index?
-    selected_entry: Option<usize>,
+    // TODO: Vec of selected entries
+    selected_entries: Vec<usize>,
+    pse: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -42,19 +47,26 @@ enum Message {
     Select(usize),
     GoBack,
     PathChanged(String),
+    Event(Event),
 }
 
 // TODO: Handle file does not exist
 // TODO: handle errors with a nice error toast/shitter
 
 impl App {
+    fn subscription(&self) -> Subscription<Message> {
+        event::listen().map(Message::Event)
+    }
+
     fn new(path: String) -> App {
         // TODO: Remove unwrap logic
         let entries = std::fs::read_dir(&path).unwrap().flatten().collect();
         Self {
             path,
             entries,
-            selected_entry: None,
+            selected_entries: Vec::with_capacity(255),
+            pse: None,
+            modifiers: Modifiers::empty(),
         }
     }
 
@@ -78,7 +90,30 @@ impl App {
                     self.goto(path);
                 }
             }
-            Message::Select(index) => self.selected_entry = Some(index),
+            Message::Select(index) => {
+                if let Some(pse) = self.pse {
+                    if let Some(last) = self.selected_entries.last()
+                        && last < &(index + 1)
+                    {
+                        self.selected_entries = (self.selected_entries[0]..index + 1).collect()
+                    } else if pse > index + 1 {
+                        self.selected_entries = (index..pse + 1).collect()
+                    } else {
+                        self.selected_entries = (pse..index + 1).collect()
+                    }
+                } else {
+                    self.selected_entries.clear();
+                    self.selected_entries.push(index);
+                }
+                self.pse = Some(index);
+            }
+
+            Message::Event(event) => match event {
+                Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) => {
+                    self.modifiers = modifiers
+                }
+                _ => {}
+            },
         }
 
         task::Task::none()
@@ -99,14 +134,33 @@ impl App {
                 let name = e.file_name().to_string_lossy().into_owned();
                 let path = e.path().to_string_lossy().into_owned();
 
-                let row = row![text(ft_label).width(24), text(name),];
+                let is_selected = self.selected_entries.contains(&index);
+
+                let row = container(row![text(ft_label).width(24), text(name)])
+                    .width(Fill)
+                    .padding([2, 4])
+                    .style(move |theme: &iced::Theme| {
+                        if is_selected {
+                            iced::widget::container::Style {
+                                background: Some(
+                                    theme.extended_palette().primary.weak.color.into(),
+                                ),
+                                ..Default::default()
+                            }
+                        } else {
+                            iced::widget::container::Style::default()
+                        }
+                    });
 
                 match ft {
                     FileType::Dir => mouse_area(row)
                         .on_press(Message::Select(index))
                         .on_double_click(Message::GoTo(path))
                         .into(),
-                    _ => mouse_area(row).on_double_click(Message::Open(path)).into(),
+                    _ => mouse_area(row)
+                        .on_press(Message::Select(index))
+                        .on_double_click(Message::Open(path))
+                        .into(),
                 }
             });
 
@@ -134,6 +188,7 @@ fn boot() -> App {
 
 fn main() {
     iced::application(boot, App::update, App::view)
+        .subscription(App::subscription)
         .run()
         .unwrap();
 }

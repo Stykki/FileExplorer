@@ -8,6 +8,8 @@ Because finder sucks.
 ### TODO:
 
 - [ ] Drag and Drop!
+- [ ] Arbitrary selection 
+- [ ] Copy Pase
 - [ ] Colorscheme
     - [ ] Custom Colorscheme
 - [ ] Path autocompletion
