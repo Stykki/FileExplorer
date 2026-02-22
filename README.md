@@ -7,10 +7,10 @@ Because finder sucks.
 
 ### TODO:
 
-- [] Colorscheme
-    - [] Custom Colorscheme
-- [] Path autocompletion
-- [] Icons
-- [] Replace `open` dependency.
-- [] Skrillions of other things
+- [ ] Colorscheme
+    - [ ] Custom Colorscheme
+- [ ] Path autocompletion
+- [ ] Icons
+- [ ] Replace `open` dependency.
+- [ ] Skrillions of other things
 
