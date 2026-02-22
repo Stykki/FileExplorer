@@ -6,17 +6,40 @@ use iced::{
     widget::{button, column, mouse_area, row, scrollable, text, text_input},
 };
 
+enum FileType {
+    File,
+    Dir,
+    Unknown,
+}
+
+fn get_ft(entry: &DirEntry) -> FileType {
+    let Ok(ft) = entry.file_type() else {
+        return FileType::Unknown;
+    };
+    if ft.is_dir() {
+        FileType::Dir
+    } else if ft.is_file() {
+        FileType::File
+    } else {
+        FileType::Unknown
+    }
+}
+
 type Element<'a> = iced::Element<'a, Message>;
 
 struct App {
     path: String,
     entries: Vec<DirEntry>,
+
+    // TODO: index?
+    selected_entry: Option<usize>,
 }
 
 #[derive(Clone)]
 enum Message {
     GoTo(String),
     Open(String),
+    Select(usize),
     GoBack,
     PathChanged(String),
 }
@@ -28,7 +51,11 @@ impl App {
     fn new(path: String) -> App {
         // TODO: Remove unwrap logic
         let entries = std::fs::read_dir(&path).unwrap().flatten().collect();
-        Self { path, entries }
+        Self {
+            path,
+            entries,
+            selected_entry: None,
+        }
     }
 
     fn goto(&mut self, path: String) {
@@ -40,8 +67,8 @@ impl App {
         match message {
             Message::GoTo(path) => self.goto(path),
             Message::Open(path) => {
-                let x = open::that_detached(path);
-                println!("{:?}", x);
+                //TODO: delete this dep?
+                let _ = open::that_detached(path);
             }
             Message::PathChanged(path) => self.path = path,
             Message::GoBack => {
@@ -51,42 +78,37 @@ impl App {
                     self.goto(path);
                 }
             }
+            Message::Select(index) => self.selected_entry = Some(index),
         }
 
         task::Task::none()
     }
 
     fn view(&self) -> Element<'_> {
-        let files = self.entries.iter().map(|e| -> Element<'_> {
-            // TODO: I hate this
-            let file_type = match e.file_type() {
-                Ok(ft) => {
-                    if ft.is_dir() {
-                        "dir"
-                    } else if ft.is_file() {
-                        "file"
-                    } else {
-                        "uknown"
-                    }
+        let files = self
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, e)| -> Element<'_> {
+                let ft = get_ft(e);
+                let ft_label = match ft {
+                    FileType::Dir => "\u{ea83}",
+                    FileType::File => "\u{f15b}",
+                    FileType::Unknown => "\u{f128}",
+                };
+                let name = e.file_name().to_string_lossy().into_owned();
+                let path = e.path().to_string_lossy().into_owned();
+
+                let row = row![text(ft_label).width(24), text(name),];
+
+                match ft {
+                    FileType::Dir => mouse_area(row)
+                        .on_press(Message::Select(index))
+                        .on_double_click(Message::GoTo(path))
+                        .into(),
+                    _ => mouse_area(row).on_double_click(Message::Open(path)).into(),
                 }
-                Err(_) => "unknown",
-            };
-
-            let name = e.file_name().to_string_lossy().into_owned();
-            let path = e.path().to_string_lossy().into_owned();
-
-            let label: Element = text(format!("{} {}", file_type, name)).into();
-
-            if e.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                mouse_area(label)
-                    .on_double_click(Message::GoTo(path))
-                    .into()
-            } else {
-                mouse_area(label)
-                    .on_double_click(Message::Open(path))
-                    .into()
-            }
-        });
+            });
 
         column![
             row![
