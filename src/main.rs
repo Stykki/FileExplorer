@@ -37,6 +37,7 @@ struct App {
 
     // TODO: Vec of selected entries
     selected_entries: Vec<usize>,
+    // TODO: Make this fixed when doing selections
     pse: Option<usize>,
 }
 
