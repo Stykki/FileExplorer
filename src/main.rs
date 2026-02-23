@@ -1,4 +1,4 @@
-use std::{fs::DirEntry, path::Path, sync::Arc};
+use std::{fs::DirEntry, path::Path, rc::Rc, sync::Arc};
 
 use iced::{
     Event,
@@ -9,10 +9,10 @@ use iced::{
     widget::{button, column, container, mouse_area, row, scrollable, text, text_input},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum FileType {
-    File,
     Dir,
+    File,
     Unknown,
 }
 
@@ -64,6 +64,8 @@ struct App {
     anchor: Option<usize>,
     // TODO: Set?
     selected_entries: Vec<usize>,
+
+    err: Option<String>,
 }
 
 #[derive(Clone)]
@@ -86,11 +88,14 @@ impl App {
 
     fn new(path: String) -> App {
         // TODO: Remove unwrap logic
-        let entries = std::fs::read_dir(&path)
+        let mut entries: Vec<File> = std::fs::read_dir(&path)
             .unwrap()
             .flatten()
             .map(|item| item.into())
             .collect();
+
+        entries.sort_by(|a, b| a.file_type.cmp(&b.file_type).then(a.name.cmp(&b.name)));
+
         Self {
             path: path.into(),
             entries,
@@ -100,12 +105,14 @@ impl App {
     }
 
     fn goto(&mut self, path: Arc<str>) {
-        self.entries = std::fs::read_dir(&*path)
-            .unwrap()
-            .flatten()
-            .map(|item| item.into())
-            .collect();
-        self.path = path;
+        if let Ok(dir) = std::fs::read_dir(&*path) {
+            self.entries = dir.flatten().map(|item| item.into()).collect();
+            self.entries
+                .sort_by(|a, b| a.file_type.cmp(&b.file_type).then(a.name.cmp(&b.name)));
+            self.path = path;
+        } else {
+            self.err = Some("Could not open directory".into())
+        }
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
