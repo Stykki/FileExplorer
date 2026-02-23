@@ -1,4 +1,4 @@
-use std::{fs::DirEntry, path::Path};
+use std::{ffi::OsString, fs::DirEntry, path::Path};
 
 use iced::{
     Event,
@@ -13,6 +13,12 @@ enum FileType {
     File,
     Dir,
     Unknown,
+}
+
+// TODO: map when reading directory
+struct File {
+    file_type: FileType,
+    name: OsString,
 }
 
 fn get_ft(entry: &DirEntry) -> FileType {
@@ -38,7 +44,7 @@ struct App {
     // TODO: Vec of selected entries
     selected_entries: Vec<usize>,
     // TODO: Make this fixed when doing selections
-    pse: Option<usize>,
+    anchor: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -66,13 +72,15 @@ impl App {
             path,
             entries,
             selected_entries: Vec::with_capacity(255),
-            pse: None,
+            anchor: None,
             modifiers: Modifiers::empty(),
         }
     }
 
     fn goto(&mut self, path: String) {
+        let now = std::time::Instant::now();
         self.entries = std::fs::read_dir(&path).unwrap().flatten().collect();
+        println!("read_dir took: {:?}", now.elapsed());
         self.path = path;
     }
 
@@ -92,21 +100,25 @@ impl App {
                 }
             }
             Message::Select(index) => {
-                if let Some(pse) = self.pse {
-                    if let Some(last) = self.selected_entries.last()
-                        && last < &(index + 1)
-                    {
-                        self.selected_entries = (self.selected_entries[0]..index + 1).collect()
-                    } else if pse > index + 1 {
-                        self.selected_entries = (index..pse + 1).collect()
+                if self.modifiers.shift() {
+                    if let Some(anchor) = self.anchor {
+                        if anchor > index + 1 {
+                            self.selected_entries = (index..anchor + 1).collect()
+                        } else {
+                            self.selected_entries = (anchor..index + 1).collect()
+                        }
+                    }
+                } else if self.modifiers.control() {
+                    if self.selected_entries.contains(&index) {
+                        self.selected_entries.retain(|idx| index != *idx);
                     } else {
-                        self.selected_entries = (pse..index + 1).collect()
+                        self.selected_entries.push(index);
                     }
                 } else {
+                    self.anchor = Some(index);
                     self.selected_entries.clear();
                     self.selected_entries.push(index);
                 }
-                self.pse = Some(index);
             }
 
             Message::Event(event) => match event {
@@ -121,6 +133,7 @@ impl App {
     }
 
     fn view(&self) -> Element<'_> {
+        let now = std::time::Instant::now();
         let files = self
             .entries
             .iter()
@@ -151,7 +164,8 @@ impl App {
                         } else {
                             iced::widget::container::Style::default()
                         }
-                    });
+                    })
+                    .padding(10);
 
                 match ft {
                     FileType::Dir => mouse_area(row)
@@ -165,6 +179,7 @@ impl App {
                 }
             });
 
+        println!("Parsing files took: {:?}", now.elapsed());
         column![
             row![
                 button("Back").on_press(Message::GoBack),
@@ -172,7 +187,7 @@ impl App {
                     .on_input(Message::PathChanged)
                     .on_submit(Message::GoTo(self.path.clone())),
             ],
-            scrollable(column(files).width(Fill).padding(20).spacing(10))
+            scrollable(column(files).width(Fill).padding(20))
         ]
         .into()
     }
