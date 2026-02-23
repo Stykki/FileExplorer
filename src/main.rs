@@ -1,4 +1,4 @@
-use std::{ffi::OsString, fs::DirEntry, path::Path};
+use std::{fs::DirEntry, path::Path, sync::Arc};
 
 use iced::{
     Event,
@@ -9,6 +9,7 @@ use iced::{
     widget::{button, column, container, mouse_area, row, scrollable, text, text_input},
 };
 
+#[derive(Debug)]
 enum FileType {
     File,
     Dir,
@@ -16,9 +17,25 @@ enum FileType {
 }
 
 // TODO: map when reading directory
+#[derive(Debug)]
 struct File {
     file_type: FileType,
-    name: OsString,
+    name: Arc<str>,
+    path: Arc<str>,
+}
+
+impl From<DirEntry> for File {
+    fn from(value: DirEntry) -> Self {
+        let file_type = get_ft(&value);
+        let name: Arc<str> = value.file_name().to_string_lossy().as_ref().into();
+        let path: Arc<str> = value.path().to_string_lossy().as_ref().into();
+
+        Self {
+            file_type,
+            name,
+            path,
+        }
+    }
 }
 
 fn get_ft(entry: &DirEntry) -> FileType {
@@ -36,21 +53,23 @@ fn get_ft(entry: &DirEntry) -> FileType {
 
 type Element<'a> = iced::Element<'a, Message>;
 
+#[derive(Debug, Default)]
 struct App {
-    path: String,
-    entries: Vec<DirEntry>,
+    path: Arc<str>,
+    entries: Vec<File>,
     modifiers: Modifiers,
 
-    // TODO: Vec of selected entries
-    selected_entries: Vec<usize>,
-    // TODO: Make this fixed when doing selections
+    items_to_copy: Vec<String>,
+
     anchor: Option<usize>,
+    // TODO: Set?
+    selected_entries: Vec<usize>,
 }
 
 #[derive(Clone)]
 enum Message {
-    GoTo(String),
-    Open(String),
+    GoTo(Arc<str>),
+    Open(Arc<str>),
     Select(usize),
     GoBack,
     PathChanged(String),
@@ -67,20 +86,25 @@ impl App {
 
     fn new(path: String) -> App {
         // TODO: Remove unwrap logic
-        let entries = std::fs::read_dir(&path).unwrap().flatten().collect();
+        let entries = std::fs::read_dir(&path)
+            .unwrap()
+            .flatten()
+            .map(|item| item.into())
+            .collect();
         Self {
-            path,
+            path: path.into(),
             entries,
             selected_entries: Vec::with_capacity(255),
-            anchor: None,
-            modifiers: Modifiers::empty(),
+            ..Default::default()
         }
     }
 
-    fn goto(&mut self, path: String) {
-        let now = std::time::Instant::now();
-        self.entries = std::fs::read_dir(&path).unwrap().flatten().collect();
-        println!("read_dir took: {:?}", now.elapsed());
+    fn goto(&mut self, path: Arc<str>) {
+        self.entries = std::fs::read_dir(&*path)
+            .unwrap()
+            .flatten()
+            .map(|item| item.into())
+            .collect();
         self.path = path;
     }
 
@@ -89,14 +113,14 @@ impl App {
             Message::GoTo(path) => self.goto(path),
             Message::Open(path) => {
                 //TODO: delete this dep?
-                let _ = open::that_detached(path);
+                let _ = open::that_detached(&*path);
             }
-            Message::PathChanged(path) => self.path = path,
+            Message::PathChanged(path) => self.path = path.into(),
             Message::GoBack => {
-                let p = Path::new(&self.path);
+                let p = Path::new(&*self.path);
                 if let Some(parent) = p.parent() {
                     let path = parent.to_string_lossy().into_owned();
-                    self.goto(path);
+                    self.goto(path.into());
                 }
             }
             Message::Select(index) => {
@@ -133,24 +157,25 @@ impl App {
     }
 
     fn view(&self) -> Element<'_> {
-        let now = std::time::Instant::now();
+        #[cfg(debug_assertions)]
+        let t = std::time::Instant::now();
+
         let files = self
             .entries
             .iter()
             .enumerate()
             .map(|(index, e)| -> Element<'_> {
-                let ft = get_ft(e);
-                let ft_label = match ft {
+                let ft_label = match e.file_type {
                     FileType::Dir => "\u{ea83}",
                     FileType::File => "\u{f15b}",
                     FileType::Unknown => "\u{f128}",
                 };
-                let name = e.file_name().to_string_lossy().into_owned();
-                let path = e.path().to_string_lossy().into_owned();
+                let name: &str = &e.name;
+                let path = e.path.clone();
 
                 let is_selected = self.selected_entries.contains(&index);
 
-                let row = container(row![text(ft_label).width(24), text(name)])
+                let row = container(row![text(ft_label).width(24), text(&*name)])
                     .width(Fill)
                     .padding([2, 4])
                     .style(move |theme: &iced::Theme| {
@@ -167,7 +192,7 @@ impl App {
                     })
                     .padding(10);
 
-                match ft {
+                match e.file_type {
                     FileType::Dir => mouse_area(row)
                         .on_press(Message::Select(index))
                         .on_double_click(Message::GoTo(path))
@@ -179,8 +204,7 @@ impl App {
                 }
             });
 
-        println!("Parsing files took: {:?}", now.elapsed());
-        column![
+        let result = column![
             row![
                 button("Back").on_press(Message::GoBack),
                 text_input("Path...", &self.path)
@@ -189,7 +213,12 @@ impl App {
             ],
             scrollable(column(files).width(Fill).padding(20))
         ]
-        .into()
+        .into();
+
+        #[cfg(debug_assertions)]
+        eprintln!("view: {:?}", t.elapsed());
+
+        result
     }
 }
 
