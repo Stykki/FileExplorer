@@ -1,3 +1,4 @@
+use rayon::iter::ParallelIterator;
 use std::{fs::DirEntry, path::Path, rc::Rc, sync::Arc};
 
 use iced::{
@@ -59,6 +60,7 @@ struct App {
     entries: Vec<File>,
     modifiers: Modifiers,
 
+    // TODO: Arc<Vec<Arc<str>>> or am i just a baboon
     items_to_copy: Vec<String>,
 
     anchor: Option<usize>,
@@ -68,7 +70,7 @@ struct App {
     err: Option<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Message {
     GoTo(Arc<str>),
     Open(Arc<str>),
@@ -111,11 +113,15 @@ impl App {
                 .sort_by(|a, b| a.file_type.cmp(&b.file_type).then(a.name.cmp(&b.name)));
             self.path = path;
         } else {
-            self.err = Some("Could not open directory".into())
+            self.err = Some("Could not open directory".into()).selkfsjd
         }
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
+        #[cfg(debug_assertions)]
+        let t = std::time::Instant::now();
+        eprintln!("Update: {:?}", message.clone());
+
         match message {
             Message::GoTo(path) => self.goto(path),
             Message::Open(path) => {
@@ -159,6 +165,9 @@ impl App {
                 _ => {}
             },
         }
+
+        #[cfg(debug_assertions)]
+        eprintln!("Update: {:?}", t.elapsed());
 
         task::Task::none()
     }
