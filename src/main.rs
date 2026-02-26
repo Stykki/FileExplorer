@@ -28,8 +28,8 @@ struct File {
 impl From<DirEntry> for File {
     fn from(value: DirEntry) -> Self {
         let file_type = get_ft(&value);
-        let name: Arc<str> = value.file_name().to_string_lossy().as_ref().into();
-        let path: Arc<str> = value.path().to_string_lossy().as_ref().into();
+        let name: Arc<str> = value.file_name().to_string_lossy().into();
+        let path: Arc<str> = value.path().to_string_lossy().into();
 
         Self {
             file_type,
@@ -60,8 +60,10 @@ struct App {
     entries: Vec<File>,
     modifiers: Modifiers,
 
-    // TODO: Arc<Vec<Arc<str>>> or am i just a baboon
-    items_to_copy: Vec<String>,
+    // TODO: Arc<Vec<Arc<str>>> or am i just a baboon?
+    // When would i ever need to add to paths to copy?
+    // I will just generate the list again?
+    paths_to_copy: Vec<Arc<str>>,
 
     anchor: Option<usize>,
     // TODO: Set?
@@ -106,6 +108,13 @@ impl App {
         }
     }
 
+    fn read_dir(path: &str) {
+        if let Ok(dir) = std::fs::read_dir(path) {
+            let mut entries: Vec<File> = dir.flatten().map(|item| item.into()).collect();
+            entries.sort_by(|a, b| a.file_type.cmp(&b.file_type).then(a.name.cmp(&b.name)));
+        }
+    }
+
     fn goto(&mut self, path: Arc<str>) {
         if let Ok(dir) = std::fs::read_dir(&*path) {
             self.entries = dir.flatten().map(|item| item.into()).collect();
@@ -113,7 +122,7 @@ impl App {
                 .sort_by(|a, b| a.file_type.cmp(&b.file_type).then(a.name.cmp(&b.name)));
             self.path = path;
         } else {
-            self.err = Some("Could not open directory".into()).selkfsjd
+            self.err = Some("Could not open directory".into())
         }
     }
 
@@ -162,6 +171,25 @@ impl App {
                 Event::Keyboard(iced::keyboard::Event::ModifiersChanged(modifiers)) => {
                     self.modifiers = modifiers
                 }
+
+                Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Character(c),
+                    modifiers: iced::keyboard::Modifiers::CTRL,
+                    ..
+                }) => {
+                    if c == "c" {
+                        self.paths_to_copy = self
+                            .selected_entries
+                            .iter()
+                            .map(|i| self.entries[*i].path.clone())
+                            .collect();
+                        println!("Copied files {:?}", self.paths_to_copy);
+                    } else if c == "v" {
+                        println!("Pasting files {:?}", self.paths_to_copy);
+                        self.paste_files();
+                    }
+                }
+
                 _ => {}
             },
         }
@@ -170,6 +198,20 @@ impl App {
         eprintln!("Update: {:?}", t.elapsed());
 
         task::Task::none()
+    }
+
+    fn paste_files(&self) {
+        self.paths_to_copy.iter().for_each(|path_str| {
+            let src = Path::new(path_str.as_ref());
+
+            if let Some(file_name) = src.file_name() {
+                let dst = Path::new(self.path.as_ref()).join(file_name);
+
+                if let Err(e) = std::fs::copy(src, dst) {
+                    eprintln!("Failed to copy {:?}: {}", src, e);
+                }
+            }
+        });
     }
 
     fn view(&self) -> Element<'_> {
